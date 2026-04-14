@@ -1,0 +1,21 @@
+{
+  "comment": "Maps ~/.claude/projects/ subdirectory names to palace wings. Longest substring match wins.",
+  "default_wing": "general",
+  "patterns": [
+    {"match": "betterpostools",          "wing": "betterpostools"},
+    {"match": "app-suite-rebuild",       "wing": "betterpostools"},
+    {"match": "VSI-POS",                 "wing": "betterpostools"},
+    {"match": "vsi-",                    "wing": "betterpostools"},
+    {"match": "adv-menu-import",         "wing": "betterpostools"},
+    {"match": "menu-import-tool",        "wing": "betterpostools"},
+    {"match": "db-suite",                "wing": "betterpostools"},
+    {"match": "pecan-command",           "wing": "betterpostools"},
+    {"match": "pos-scaffold",            "wing": "betterpostools"},
+    {"match": "prospect-tracker",        "wing": "betterpostools"},
+    {"match": "template-builder",        "wing": "betterpostools"},
+    {"match": "nomadd3v",                "wing": "nomadd3v"},
+    {"match": "sudochef",                "wing": "nomadd3v"},
+    {"match": "buildbridge",             "wing": "nomadd3v"},
+    {"match": "nomadhq",                 "wing": "nomadd3v"}
+  ]
+}

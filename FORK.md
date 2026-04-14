@@ -164,6 +164,9 @@ written against that version's `PersistentData` constructor signature.
 
 ## launchd agent (macOS)
 
+The launchd agent watches `~/.claude/projects/` and fires `mine_dispatch.py` (see below)
+after each session ends. Throttled to at most once every 5 minutes.
+
 Create `~/Library/LaunchAgents/com.nomad.mempalace-mine.plist`:
 
 ```xml
@@ -176,12 +179,7 @@ Create `~/Library/LaunchAgents/com.nomad.mempalace-mine.plist`:
     <key>ProgramArguments</key>
     <array>
         <string>/Users/nomad/.mempalace/venv/bin/python3</string>
-        <string>-m</string>
-        <string>mempalace</string>
-        <string>mine</string>
-        <string>/Users/nomad/.claude/projects</string>
-        <string>--mode</string>
-        <string>convos</string>
+        <string>/Users/nomad/.mempalace/mine_dispatch.py</string>
     </array>
     <key>WatchPaths</key>
     <array>
@@ -203,9 +201,58 @@ Create `~/Library/LaunchAgents/com.nomad.mempalace-mine.plist`:
 launchctl load ~/Library/LaunchAgents/com.nomad.mempalace-mine.plist
 ```
 
-The agent fires automatically after any Claude Code session ends and writes new transcripts.
-Indexing is throttled to at most once every 5 minutes so rapid consecutive sessions do not
-stack up multiple mine processes.
+---
+
+## Wing dispatch (project-aware mining)
+
+By default, `mine --mode convos` dumps all sessions into a flat wing named after the
+source directory. The dispatch layer adds project-aware routing: each `~/.claude/projects/`
+subdirectory is mapped to a named palace wing before indexing. Within each wing, rooms
+are still auto-detected per chunk from conversation content (`decisions`, `code`,
+`problems`, `general`, etc.).
+
+This gives you both properties:
+- **Complete coverage** — every session is captured with zero curation (launchd fires on every transcript write)
+- **Curated structure** — sessions land in the right wing, with auto-classified rooms
+
+**Files:**
+
+`~/.mempalace/project_map.json` — wing assignment config:
+```json
+{
+  "default_wing": "general",
+  "patterns": [
+    {"match": "betterpostools", "wing": "betterpostools"},
+    {"match": "db-suite",       "wing": "betterpostools"},
+    {"match": "nomadd3v",       "wing": "nomadd3v"},
+    {"match": "sudochef",       "wing": "nomadd3v"}
+  ]
+}
+```
+
+Matching is substring-based; longest match wins. Unmatched directories fall to
+`default_wing`. Edit this file to add new projects — no code changes required.
+
+`~/.mempalace/mine_dispatch.py` — the dispatch script. Called by launchd instead of
+`mine` directly. Groups directories by wing and calls `mine_convos` in-process once per
+directory with the correct `--wing`. Uses mempalace's built-in dedup so re-running is
+always safe — files already indexed are skipped.
+
+```bash
+# Preview wing assignments without mining:
+~/.mempalace/venv/bin/python3 ~/.mempalace/mine_dispatch.py --status
+
+# Dry run:
+~/.mempalace/venv/bin/python3 ~/.mempalace/mine_dispatch.py --dry-run
+
+# Full run:
+~/.mempalace/venv/bin/python3 ~/.mempalace/mine_dispatch.py
+```
+
+**Dedup note:** `file_already_mined` checks by source file path regardless of wing. Files
+indexed before the dispatch layer was added will remain under their original wing (typically
+the directory name). Only new sessions get the correct wing assignment. This is intentional
+— no re-index needed, no data loss.
 
 ---
 
