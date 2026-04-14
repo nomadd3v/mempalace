@@ -5,7 +5,10 @@ import os
 import platform
 
 from .cli import main  # noqa: E402
+from .compat import apply_all as _apply_compat  # noqa: E402
 from .version import __version__  # noqa: E402
+
+_apply_compat()
 
 # ChromaDB 0.6.x ships a Posthog telemetry client whose capture() signature is
 # incompatible with the bundled posthog library, producing noisy stderr warnings
