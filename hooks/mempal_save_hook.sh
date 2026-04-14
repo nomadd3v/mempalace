@@ -52,20 +52,18 @@
 #
 # === CONFIGURATION ===
 
-SAVE_INTERVAL=15  # Save every N human messages (adjust to taste)
+SAVE_INTERVAL=45  # Save every N human messages (adjust to taste)
 STATE_DIR="$HOME/.mempalace/hook_state"
 mkdir -p "$STATE_DIR"
 
-# Optional: set to the directory you want auto-ingested on each save trigger.
-# Example: MEMPAL_DIR="$HOME/conversations"
-# Leave empty to skip auto-ingest (AI handles saving via the block reason).
-MEMPAL_DIR=""
+# Venv Python with mempalace + compatible chromadb installed
+MEMPAL_PYTHON="$HOME/.mempalace/venv/bin/python3"
 
 # Read JSON input from stdin
 INPUT=$(cat)
 
 # Parse all fields in a single Python call (3x faster than separate invocations)
-eval $(echo "$INPUT" | python3 -c "
+eval $(echo "$INPUT" | "$MEMPAL_PYTHON" -c "
 import sys, json
 data = json.load(sys.stdin)
 sid = data.get('session_id', 'unknown')
@@ -89,29 +87,45 @@ if [ "$STOP_HOOK_ACTIVE" = "True" ] || [ "$STOP_HOOK_ACTIVE" = "true" ]; then
     exit 0
 fi
 
-# Count human messages in the JSONL transcript
+# Count human messages and get last stop_reason from the JSONL transcript
 # SECURITY: Pass transcript path as sys.argv to avoid shell injection via crafted paths
 if [ -f "$TRANSCRIPT_PATH" ]; then
-    EXCHANGE_COUNT=$(python3 - "$TRANSCRIPT_PATH" <<'PYEOF'
+    eval $("$MEMPAL_PYTHON" - "$TRANSCRIPT_PATH" <<'PYEOF'
 import json, sys
 count = 0
+last_stop_reason = "end_turn"
 with open(sys.argv[1]) as f:
     for line in f:
         try:
             entry = json.loads(line)
             msg = entry.get('message', {})
-            if isinstance(msg, dict) and msg.get('role') == 'user':
+            if not isinstance(msg, dict):
+                continue
+            if msg.get('role') == 'user':
                 content = msg.get('content', '')
                 if isinstance(content, str) and '<command-message>' in content:
                     continue
                 count += 1
+            elif msg.get('role') == 'assistant':
+                sr = msg.get('stop_reason', '')
+                if sr:
+                    last_stop_reason = sr
         except:
             pass
-print(count)
+print(f'EXCHANGE_COUNT="{count}"')
+print(f'STOP_REASON="{last_stop_reason}"')
 PYEOF
 2>/dev/null)
 else
     EXCHANGE_COUNT=0
+    STOP_REASON="end_turn"
+fi
+
+# Never interrupt autonomous/agentic work mid-task
+# tool_use = AI is in the middle of a multi-step task; let it finish
+if [ "$STOP_REASON" = "tool_use" ]; then
+    echo "{}"
+    exit 0
 fi
 
 # Track last save point for this session
@@ -132,13 +146,6 @@ if [ "$SINCE_LAST" -ge "$SAVE_INTERVAL" ] && [ "$EXCHANGE_COUNT" -gt 0 ]; then
     echo "$EXCHANGE_COUNT" > "$LAST_SAVE_FILE"
 
     echo "[$(date '+%H:%M:%S')] TRIGGERING SAVE at exchange $EXCHANGE_COUNT" >> "$STATE_DIR/hook.log"
-
-    # Optional: run mempalace ingest in background if MEMPAL_DIR is set
-    if [ -n "$MEMPAL_DIR" ] && [ -d "$MEMPAL_DIR" ]; then
-        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        REPO_DIR="$(dirname "$SCRIPT_DIR")"
-        python3 -m mempalace mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1 &
-    fi
 
     # Block the AI and tell it to save
     # The "reason" becomes a system message the AI sees and acts on
