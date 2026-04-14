@@ -1,8 +1,61 @@
 # nomadd3v/mempalace — Fork Notes
 
-This fork of [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace) adds
-fixes and workflow changes needed for Claude Code + macOS ARM64 setups where the palace
-was indexed under an older chromadb version.
+This fork of [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace) makes
+two categories of change: a bug fix for legacy palace data, and a fundamental shift in
+**what gets indexed and when**.
+
+---
+
+## Core concept change: Claude Code session logs as the palace
+
+Upstream mempalace is designed to index project files — source code, docs, configs — and
+optionally conversation exports you provide. This fork is built around a different primary
+use case: **automatically indexing every Claude Code session as it ends**.
+
+Claude Code writes a full JSONL transcript of every session to `~/.claude/projects/` —
+every user message, assistant response, tool call, and result. These logs are the most
+complete record of every decision made, every bug debugged, every architecture discussed,
+every code change explained. They exist already, unconditionally, with zero extra effort.
+
+This fork treats those logs as the palace's primary data source:
+
+```
+Claude Code session ends
+        │
+        ▼
+~/.claude/projects/<session>.jsonl written
+        │
+        ▼ (WatchPaths trigger)
+launchd fires: mempalace mine ~/.claude/projects --mode convos
+        │
+        ▼
+New session chunks embedded + deduplicated into palace
+        │
+        ▼
+Future sessions can semantically search all past work:
+  "why did we switch the order lookup to lazy fetch?"
+  "what was the Supabase schema change for the scaffold?"
+  "show me the CoreML fix we applied to chromadb"
+```
+
+This is a different value proposition from upstream's project-file indexing. The palace
+becomes a persistent memory layer for Claude Code itself — verbatim recall of past
+sessions without requiring any manual export, annotation, or curation. The AI never wrote
+the logs; it just has to mine them.
+
+**What `--mode convos` does with JSONL transcripts:**
+
+Claude Code JSONL files contain structured message objects with `role` (user/assistant),
+`content`, and tool call/result blocks. `mine --mode convos` parses these into text chunks
+suitable for embedding — stripping tool internals, keeping the meaningful content — and
+deduplicates against what is already in the palace so re-running is always safe.
+
+**What the palace does not replace:**
+
+The structured markdown memory files (`~/.claude/projects/memory/`) that Claude writes
+via the Stop hook are still valuable. They are synthesized summaries — the AI's own
+distillation of what matters. The palace has verbatim recall; the markdown notes have
+judgment. Both are useful; they serve different query modes.
 
 ---
 
